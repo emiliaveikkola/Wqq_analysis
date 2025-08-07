@@ -1,0 +1,1161 @@
+#include <cctype>
+#include <map>
+#define TagandProbe_cxx
+#include "TagandProbe.h"
+#include <TH2.h>
+#include <TH3.h>
+#include <TH1.h>
+#include <TStyle.h>
+#include <TCanvas.h>
+#include <TProfile.h>
+#include <TProfile2D.h>
+#include <TLorentzVector.h>
+
+#include <iostream>
+#include <chrono>
+#include <ctime>
+#include <algorithm>
+#include <TLegend.h>
+#include <TColor.h>
+#include <TStopwatch.h>
+#include "tdrstyle_mod22.C"
+
+#include "JERHandler.h"
+
+// ---------------------------------------------------------------------------
+// Global c‑tag threshold that depends on data‑taking period (Run 2 sub‑era)
+// This will be updated inside Loop() for every file.
+// Default keeps the legacy value (2018 legacy = 0.43).
+// ---------------------------------------------------------------------------
+double g_ctag_high = 1.0;
+constexpr double CTAG_LOW = 0.06;
+
+// ---------------------------------------------------------------------------
+// Obtain the tight‑ctag working point from a file path
+// ---------------------------------------------------------------------------
+inline double CtagThresholdFromFilename(const std::string& fname)
+{
+    if (fname.find("Muo16APV") != std::string::npos) return 0.37;
+    if (fname.find("Muo16")    != std::string::npos) return 0.38;
+    if (fname.find("Muo17")    != std::string::npos) return 0.53;
+    if (fname.find("Muo18")    != std::string::npos) return 0.48;
+    return 1.0;   // default / unknown
+}
+
+int Tag(double x) {
+   if (x > g_ctag_high) return 1;      // tight c‑tag
+   if (x < CTAG_LOW  ) return 2;       // loose c‑tag
+   return 3;                           // mid region
+}
+
+int Flav(double x) {
+   if (x == 4 || x == -4) return 1; //c
+   if (x == 1 || x == -1 || x == 2 || x == -2 || x == 3 || x  == -3) return 2; //uds
+   return 3;                        //other
+}
+
+int DetermineJetPairDATA(double x, double y) {
+   if (x > g_ctag_high || y > g_ctag_high) return 1;
+   if (x < CTAG_LOW && y < CTAG_LOW)      return 2;
+   return 3;
+}
+
+int DetermineJetPairDATA_test(double x, double y) {
+   if (x > 0.37 || y > 0.37) return 1;
+   if (x > 0.38 || y > 0.38) return 2;
+   if (x > 0.43 || y > 0.43) return 3;
+   if (x > 0.60 || y > 0.60) return 4;
+   if (x > 0.67 || y > 0.67) return 5;
+   if (x < 0.06 && y < 0.06) return 6;
+   return 7;
+}
+
+int DetermineJetPairMC(int x, int y) {
+   if (x == 3 && y == -4 || x == -3 && y == 4 ||
+   x == 4 && y == -3 || x == -4 && y == 3) return 1;
+   if (x == 1 && y == -2 || x == -1 && y == 2 ||
+   x == 2 && y == -1 || x == -2 && y == 1) return 2;
+   return 3;
+}
+
+bool isExcludedPair(int a, int b) {
+    // a should be 4, -4, 5, or -5 and b should not be from the excluded values (4, -4, 5, -5, 21)
+    return (a == 4 || a == -4 || a == 5 || a == -5) &&
+           (b != 4 && b != -4 && b != 5 && b != -5 && b != 21);
+}
+
+int DetermineJetPairMC_test(int x, int y) {
+    // Check for category 1 (cX, anticX, bX, antibX)
+    if (isExcludedPair(x, y) || isExcludedPair(y, x)) {
+        return 1;
+    }
+
+    // Check for category 2 (dQ, antidQ, uQ, antiuQ)
+    if ((x == 1 || x == -1 || x == 2 || x == -2) &&
+        (y == 1 || y == -1 || y == 2 || y == -2)) {
+        return 2;
+    }
+
+    // Default case
+    return 3;
+}
+
+
+// Define the bin labels
+const char* binLabels3[3] = {"c", "l", "x"};
+const char* binLabels12[12] = {"antib", "antic", "antis", "antiu", "antid", "0", "d", "u", "s", "c", "b", "g"};
+const char* binLabels7[7] = {"0", "d", "u", "s", "c", "b", "g"};
+
+// Helper function to set bin labels for 2D histograms (TH2, TProfile2D)
+void SetBinLabels2D(TAxis* xAxis, TAxis* yAxis, const char** labels, int n) {
+    for (int i = 0; i < n; ++i) {
+        xAxis->SetBinLabel(i + 1, labels[i]);
+        yAxis->SetBinLabel(i + 1, labels[i]);
+    }
+}
+
+// Helper function to set bin labels for 2D histograms (TH2, TProfile2D)
+void SetBinLabels1D(TAxis* xAxis, const char** labels, int n) {
+    for (int i = 0; i < n; ++i) {
+        xAxis->SetBinLabel(i + 1, labels[i]);
+    }
+}
+
+// Helper function to set bin labels for 3D histograms (TH3D)
+void SetBinLabels3D(TH3* hist, const char** labels, int n) {
+    for (int i = 0; i < n; ++i) {
+        hist->GetXaxis()->SetBinLabel(i + 1, labels[i]);
+        hist->GetYaxis()->SetBinLabel(i + 1, labels[i]);
+    }
+}
+
+std::vector<std::vector<TH3D*>> initializeHistograms(const std::vector<double>& scaleFactors, const std::string& namePrefix, const std::string& axisTitle) {
+    std::vector<std::vector<TH3D*>> histograms;
+
+    for (double scale1 : scaleFactors) {
+        std::vector<TH3D*> innerVec;
+        for (double scale2 : scaleFactors) {
+            TString histName = TString::Format("%s_%.3f_%.3f", namePrefix.c_str(), scale1, scale2);
+            TH3D* hist = new TH3D(histName, axisTitle.c_str(), 3, 1, 4, 3, 1, 4, 200, 0, 200);
+            innerVec.push_back(hist);
+        }
+        histograms.push_back(innerVec);
+    }
+
+    return histograms;
+}
+
+
+std::vector<std::vector<TH3D*>> initializeHistograms2(const std::vector<double>& scaleFactors, const std::string& namePrefix, const std::string& axisTitle) {
+    std::vector<std::vector<TH3D*>> histograms;
+
+    for (double scale1 : scaleFactors) {
+        std::vector<TH3D*> innerVec;
+        for (double scale2 : scaleFactors) {
+            TString histName = TString::Format("%s_%.3f_%.3f", namePrefix.c_str(), scale1, scale2);
+            TH3D* hist = new TH3D(histName, axisTitle.c_str(), 3, 1, 4, 3, 1, 4, 67, -1, 1);
+            innerVec.push_back(hist);
+        }
+        histograms.push_back(innerVec);
+    }
+
+    return histograms;
+}
+
+std::vector<std::vector<TH3D*>> initializeHistograms1(const std::vector<double>& scales, const std::string& namePrefix, const std::string& axisTitle) {
+    std::vector<std::vector<TH3D*>> histograms;
+
+    for (double scale : scales) {
+        std::vector<TH3D*> innerHistograms;
+        TString histName = TString::Format("%s_%.3f", namePrefix.c_str(), scale);
+        TH3D* hist = new TH3D(histName, axisTitle.c_str(), 3, 1, 4, 3, 1, 4, 200, 0, 200);
+        innerHistograms.push_back(hist);
+        histograms.push_back(innerHistograms);
+    }
+
+    return histograms;
+}
+
+std::vector<std::vector<TH3D*>> initializeHistograms3(const std::vector<double>& scales, const std::string& namePrefix, const std::string& axisTitle) {
+    std::vector<std::vector<TH3D*>> histograms;
+
+    for (double scale : scales) {
+        std::vector<TH3D*> innerHistograms;
+        TString histName = TString::Format("%s_%.3f", namePrefix.c_str(), scale);
+        TH3D* hist = new TH3D(histName, axisTitle.c_str(), 3, 1, 4, 3, 1, 4, 67, -1, 1);
+        innerHistograms.push_back(hist);
+        histograms.push_back(innerHistograms);
+    }
+
+    return histograms;
+}
+
+std::vector<std::vector<TH3D*>> initializeHistograms4(const std::vector<double>& scaleFactors, const std::string& namePrefix, const std::string& axisTitle) {
+    std::vector<std::vector<TH3D*>> histograms;
+
+    for (double scale1 : scaleFactors) {
+        std::vector<TH3D*> innerVec;
+        for (double scale2 : scaleFactors) {
+            TString histName = TString::Format("%s_%.3f_%.3f", namePrefix.c_str(), scale1, scale2);
+            TH3D* hist = new TH3D(histName, axisTitle.c_str(), 3, 1, 4, 3, 1, 4, 200, 0, 200);
+            innerVec.push_back(hist);
+        }
+        histograms.push_back(innerVec);
+    }
+
+    return histograms;
+}
+
+
+std::vector<std::vector<TH3D*>> initializeHistograms5(const std::vector<double>& scaleFactors, const std::string& namePrefix, const std::string& axisTitle) {
+    std::vector<std::vector<TH3D*>> histograms;
+
+    for (double scale1 : scaleFactors) {
+        std::vector<TH3D*> innerVec;
+        for (double scale2 : scaleFactors) {
+            TString histName = TString::Format("%s_%.3f_%.3f", namePrefix.c_str(), scale1, scale2);
+            TH3D* hist = new TH3D(histName, axisTitle.c_str(), 3, 1, 4, 3, 1, 4, 67, -1, 1);
+            innerVec.push_back(hist);
+        }
+        histograms.push_back(innerVec);
+    }
+
+    return histograms;
+}
+
+// ---------------------------------------------------------------------------
+// Per‑jet scale factors derived from the response fits
+//  - Jet‑1:   cubic polynomial
+//  - Jet‑2:   exponential + power‑law
+// ---------------------------------------------------------------------------
+inline double ScaleResponseFunc(double pt)
+{
+    // R(pt): polynomial in (pt–80)/100 plus 1/pt and exp(pt^2 * c7)
+    constexpr double c0 = 0.877809;
+    constexpr double c1 = 0.416711;
+    constexpr double c2 = -0.557932;
+    constexpr double c3 = 0.342122;
+    constexpr double c4 = -0.0783149;
+    constexpr double c5 = 5.55923;
+    constexpr double c6 = 0.44748;
+    constexpr double c7 = -0.000217518;
+
+    const double x = (pt - 80.0) / 100.0;
+    return c0
+         + c1 * x
+         + c2 * x * x
+         + c3 * x * x * x
+         + c4 * x * x * x * x
+         + c5 / pt
+         + c6 * std::exp(pt * pt * c7);
+}
+
+void TagandProbe::Loop()
+{
+//   In a ROOT session, you can do:
+//      root> .L TagandProbe.C
+//      root> TagandProbe t
+//      root> t.GetEntry(12); // Fill t data members with entry number 12
+//      root> t.Show();       // Show values of entry 12
+//      root> t.Show(16);     // Read and show values of entry 16
+//      root> t.Loop();       // Loop on all entries
+//
+
+//     This is the loop skeleton where:
+//    jentry is the global entry number in the chain
+//    ientry is the entry number in the current Tree
+//  Note that the argument to GetEntry must be:
+//    jentry for TChain::GetEntry
+//    ientry for TTree::GetEntry and TBranch::GetEntry
+//
+//       To read only selected branches, Insert statements like:
+// METHOD1:
+//    fChain->SetBranchStatus("*",0);  // disable all branches
+//    fChain->SetBranchStatus("branchname",1);  // activate branchname
+// METHOD2: replace line
+//    fChain->GetEntry(jentry);       //read all branches
+//by  b_branchname->GetEntry(ientry); //read only this branch
+   if (fChain == 0) return;
+
+   JERHandler jer;
+
+   // ------------------------------------------------------------------
+   // g_ctag_high is set dynamically per file in the event loop below.
+   // ------------------------------------------------------------------
+   
+      // Activate only necessary branches
+   fChain->SetBranchStatus("*", 0); // Disable all branches
+
+   fChain->SetBranchStatus("ctag1", 1);
+   fChain->SetBranchStatus("ctag2", 1);
+   fChain->SetBranchStatus("flav1", 1);
+   fChain->SetBranchStatus("flav2", 1);
+   fChain->SetBranchStatus("gen_pt1", 1);
+   fChain->SetBranchStatus("gen_eta1", 1);
+   fChain->SetBranchStatus("gen_phi1", 1);
+   fChain->SetBranchStatus("gen_m1", 1);
+   fChain->SetBranchStatus("gen_pt2", 1);
+   fChain->SetBranchStatus("gen_eta2", 1);
+   fChain->SetBranchStatus("gen_phi2", 1);
+   fChain->SetBranchStatus("gen_m2", 1);
+   fChain->SetBranchStatus("pt1", 1);
+   fChain->SetBranchStatus("eta1", 1);
+   fChain->SetBranchStatus("phi1", 1);
+   fChain->SetBranchStatus("m1", 1);
+   fChain->SetBranchStatus("pt2", 1);
+   fChain->SetBranchStatus("eta2", 1);
+   fChain->SetBranchStatus("phi2", 1);
+   fChain->SetBranchStatus("m2", 1);
+   fChain->SetBranchStatus("weight", 1);
+   fChain->SetBranchStatus("fitProb", 1);
+   fChain->SetBranchStatus("PSWgts", 1); // Needed for ISR/FSR systematics
+   fChain->SetBranchStatus("pfRho", 1);
+
+   TDirectory *curdir = gDirectory;
+   // Create the output file based on a condition
+   TFile* fout;
+
+   bool DATA = false;
+   bool SCALED = false;
+   bool NOTSCALED = false;
+   bool ITERATION = false;
+   bool CHI2 = false;
+   bool PSWEIGHTS = false;
+   bool SMEAR = true;
+   if (DATA) {fout = new TFile("output/DATARun2.root", "RECREATE");}
+   else if (SCALED) {fout = new TFile("output/MCSCALEDRun2_fit.root", "RECREATE");}
+   else if (NOTSCALED) {fout = new TFile("output/MCRun2.root", "RECREATE");}
+   else if (PSWEIGHTS) {fout = new TFile("output/MCSCALEDRun2_scales.root", "RECREATE");}
+   else if (SMEAR) {fout = new TFile("output/MCSCALEDRun2_JERsmear.root", "RECREATE");}
+   else {fout = new TFile("false.root", "RECREATE");}
+
+   TH1::SetDefaultSumw2();
+
+   // --- Initialize PS-weights histograms before event loop ---
+      // PS-weights labels for initialization and filling
+   std::vector<std::string> psLabels = {
+       "fsr:murfac=0.707", "fsr:murfac=1.414", "fsr:murfac=0.5",
+       "fsr:murfac=2.0", "fsr:murfac=0.25", "fsr:murfac=4.0", "fsr:g2gg:murfac=0.5",
+       "fsr:g2gg:murfac=2.0", "fsr:g2qq:murfac=0.5", "fsr:g2qq:murfac=2.0",
+       "fsr:q2qg:murfac=0.5", "fsr:q2qg:murfac=2.0", "fsr:x2xg:murfac=0.5",
+       "fsr:x2xg:murfac=2.0", "fsr:g2gg:cns=-2.0", "fsr:g2gg:cns=2.0",
+       "fsr:g2qq:cns=-2.0", "fsr:g2qq:cns=2.0", "fsr:q2qg:cns=-2.0",
+       "fsr:q2qg:cns=2.0", "fsr:x2xg:cns=-2.0", "fsr:x2xg:cns=2.0",
+       "isr:murfac=0.707", "isr:murfac=1.414", "isr:murfac=0.5", "isr:murfac=2.0",
+       "isr:murfac=0.25", "isr:murfac=4.0", "isr:g2gg:murfac=0.5", "isr:g2gg:murfac=2.0",
+       "isr:g2qq:murfac=0.5", "isr:g2qq:murfac=2.0", "isr:q2qg:murfac=0.5",
+       "isr:q2qg:murfac=2.0", "isr:x2xg:murfac=0.5", "isr:x2xg:murfac=2.0",
+       "isr:g2gg:cns=-2.0", "isr:g2gg:cns=2.0", "isr:g2qq:cns=-2.0", "isr:g2qq:cns=2.0",
+       "isr:q2qg:cns=-2.0", "isr:q2qg:cns=2.0", "isr:x2xg:cns=-2.0", "isr:x2xg:cns=2.0"
+   };
+
+   std::map<std::string, TH3D*> h3PSMassMap, h3PSPtMap;
+   if (PSWEIGHTS) {
+       for (const auto &label : psLabels) {
+           TString nameMass = TString::Format("h3MassFlavorPairs_DATAMC_%s", label.c_str());
+           h3PSMassMap[label] = new TH3D(nameMass,
+               ";MC;DATA; Mass", 3,1,4, 3,1,4, 200,0,200);
+           TString namePt = TString::Format("h3PtFlavorPairs_DATAMC_%s", label.c_str());
+           h3PSPtMap[label] = new TH3D(namePt,
+               ";MC;DATA; Pt",   3,1,4, 3,1,4,  67,-1,1);
+       }
+   }
+   // -------------------------------------------------------------
+
+   TH2D *h2tag_c = new TH2D("h2tag_c", ";reco probe;gen probe; N", 3, 1, 4, 3, 1, 4);
+   TH2D *h2tag_u = new TH2D("h2tag_u", ";reco probe;gen probe; N", 3, 1, 4, 3, 1, 4);
+   TH2D *h2tag_x = new TH2D("h2tag_x", ";reco probe;gen probe; N", 3, 1, 4, 3, 1, 4);
+
+   TH2D* h2matrixN = new TH2D("h2matrixN", ";flav1;flav2; N", 12,-5.5,6.5,12,-5.5,6.5);
+   TProfile2D* p2matrixMass = new TProfile2D("p2matrixMass", ";flav1;flav2; Mass", 12,-5.5,6.5,12,-5.5,6.5);
+   TProfile2D* p2matrixPt = new TProfile2D("p2matrixPt", ";flav1;flav2; Pt", 12,-5.5,6.5,12,-5.5,6.5);
+   TH3D* h3matrixMass = new TH3D("h3matrixMass", ";flav1;flav2; Mass", 12,-5.5,6.5,12,-5.5,6.5,200,0,200);
+   TH3D *h3matrixPt = new TH3D("h3matrixPt", ";flav1;flav2; Pt", 12,-5.5,6.5,12,-5.5,6.5,67,-1,1);
+
+   TH1D *h_gen_nom = new TH1D("h_gen_nom", ";N;Mass", 200,0,200);
+   TH1D *h_gen_fsr = new TH1D("h_gen_fsr", ";N;Mass", 200,0,200);
+   TH1D *h_gen_jer = new TH1D("h_gen_jer", ";N;Mass", 200,0,200);
+   TH1D *h_gen_isr = new TH1D("h_gen_isr", ";N;Mass", 200,0,200);
+
+   TH3D *h3MassFlavorPairs_DATAMC  = new TH3D("h3MassFlavorPairs_DATAMC", ";MC;DATA; Mass", 3, 1, 4, 3, 1, 4,200,0,200);
+   TH3D *h3PtFlavorPairs_DATAMC = new TH3D("h3PtFlavorPairs_DATAMC", ";MC;DATA; Pt", 3, 1, 4, 3, 1, 4,67,-1,1);
+
+   TH3D *h3MassFlavorPairs_DATAMC_up  = new TH3D("h3MassFlavorPairs_DATAMC_up", ";MC;DATA; Mass", 3, 1, 4, 3, 1, 4,200,0,200);
+   TH3D *h3PtFlavorPairs_DATAMC_up = new TH3D("h3PtFlavorPairs_DATAMC_up", ";MC;DATA; Pt", 3, 1, 4, 3, 1, 4,67,-1,1);
+
+   TH3D *h3MassFlavorPairs_DATAMC_down  = new TH3D("h3MassFlavorPairs_DATAMC_down", ";MC;DATA; Mass", 3, 1, 4, 3, 1, 4,200,0,200);
+   TH3D *h3PtFlavorPairs_DATAMC_down = new TH3D("h3PtFlavorPairs_DATAMC_down", ";MC;DATA; Pt", 3, 1, 4, 3, 1, 4,67,-1,1);
+
+   TH3D *h3MassFlavorPairs_DATAMC_up2  = new TH3D("h3MassFlavorPairs_DATAMC_up2", ";MC;DATA; Mass", 3, 1, 4, 3, 1, 4,200,0,200);
+   TH3D *h3PtFlavorPairs_DATAMC_up2 = new TH3D("h3PtFlavorPairs_DATAMC_up2", ";MC;DATA; Pt", 3, 1, 4, 3, 1, 4,67,-1,1);
+
+   TH3D *h3MassFlavorPairs_DATAMC_down2  = new TH3D("h3MassFlavorPairs_DATAMC_down2", ";MC;DATA; Mass", 3, 1, 4, 3, 1, 4,200,0,200);
+   TH3D *h3PtFlavorPairs_DATAMC_down2 = new TH3D("h3PtFlavorPairs_DATAMC-down2", ";MC;DATA; Pt", 3, 1, 4, 3, 1, 4,67,-1,1);
+
+   TH3D *h3MassFlavorPairs_DATAMC_gen  = new TH3D("h3MassFlavorPairs_DATAMC_gen", ";MC;DATA; Mass", 3, 1, 4, 3, 1, 4,200,0,200);
+   TH3D *h3PtFlavorPairs_DATAMC_gen = new TH3D("h3PtFlavorPairs_DATAMC_gen", ";MC;DATA; Pt", 3, 1, 4, 3, 1, 4,67,-1,1);
+
+   TH3D *h3MassFlavorPairs_DATAMC_RESP = new TH3D("h3MassFlavorPairs_DATAMC_RESP", ";MC;DATA; Mass", 3, 1, 4, 3, 1, 4,200,0,200);
+   TH3D *h3PtFlavorPairs_DATAMC_RESP = new TH3D("h3PtFlavorPairs_DATAMC_RESP", ";MC;DATA; Pt", 3, 1, 4, 3, 1, 4,67,-1,1);
+
+   TH1D *h1gen_vs_reco_mass = new TH1D("h1gen_vs_reco_mass", ";reco/gen;N", 250, 0, 2.5);
+
+   TH1D *ptrecovsgen = new TH1D("ptrecovsgen", "; reco/gen; N", 100, 0, 3);
+
+   TH1D *x = new TH1D("x", ";x;N", 200, -10, 10);
+   TH1D *xx = new TH1D("xx", ";xx;N", 200, -10, 10);
+   TH1D *y = new TH1D("y", ";y;N", 200, -10, 10);
+   TH1D *yy = new TH1D("yy", ";yy;N", 200, -10, 10);
+   TH1D *xy = new TH1D("xy", ";xy;N", 200, -10, 10);
+
+   TH2D* h2_70 = new TH2D("h2_70", ";flav1;flav2; N", 7,-0.5,6.5,7,-0.5,6.5);
+   TH2D* h2_97 = new TH2D("h2_97", ";flav1;flav2; N", 7,-0.5,6.5,7,-0.5,6.5);
+   TH2D* h2_77_87 = new TH2D("h2_77_87", ";flav1;flav2; N", 7,-0.5,6.5,7,-0.5,6.5);
+
+   TH1D* h_smear_mass = new TH1D("h_smear_mass", ";Mass;N", 200,0,200);
+   TH1D* h_smear_pt = new TH1D("h_smear_pt", ";pt diff;N", 67,-1,1);
+
+   TH3D *h3MassFlavorPairs_DATAMC_JER_smear  = new TH3D("h3MassFlavorPairs_DATAMC_JER_smear", ";MC;DATA; Mass", 3, 1, 4, 3, 1, 4,200,0,200);
+   TH3D *h3PtFlavorPairs_DATAMC_JER_smear = new TH3D("h3PtFlavorPairs_DATAMC_JER_smear", ";MC;DATA; Pt", 3, 1, 4, 3, 1, 4,67,-1,1);
+
+      // Response histograms: pt_reco/pt_gen vs. pt_gen for each jet
+   TProfile* prof_resp = new TProfile("prof_resp", "; W gen_pt (GeV); W reco_pt/gen_pt", 100, 0, 200);
+   TH2D*    h2_resp    = new TH2D("h2_resp",    ";W gen_pt (GeV); W reco_pt/gen_pt", 100, 0, 200, 100, 0.5, 1.5);
+
+   // Define pt scaling factors
+    std::vector<double> ptscales = {1.05, 1.1, 1.2, 0.8, 0.9};
+        //std::vector<double> ptscales;
+    //for (double ptscale = 0.8; ptscale <= 1.3; ptscale += 0.05) {
+        //ptscales.push_back(ptscale);
+    //}
+    std::vector<TH3D*> h3MassFlavorPairs_DATAMC_JER;
+    std::vector<TH3D*> h3PtFlavorPairs_DATAMC_JER;
+
+    // Initialize histograms for each pt scale factor with specific binning
+    for (double ptscale : ptscales) {
+        std::string histNameMass2 = Form("h3MassFlavorPairs_DATAMC_JER%.0f", ptscale * 100);
+        std::string histNamePt2 = Form("h3PtFlavorPairs_DATAMC_JER%.0f", ptscale * 100);
+
+        // Create the mass histogram for the current pt scale
+        h3MassFlavorPairs_DATAMC_JER.push_back(new TH3D(histNameMass2.c_str(), ";MC;DATA; Mass", 
+                                                    3, 1, 4, 3, 1, 4, 200, 0, 200));
+        // Create the pt histogram for the current pt scale
+        h3PtFlavorPairs_DATAMC_JER.push_back(new TH3D(histNamePt2.c_str(), ";MC;DATA; Pt", 
+                                                3, 1, 4, 3, 1, 4, 67, -1, 1));
+    }
+
+    // Define weight factors
+    std::vector<double> weights = {1.2, 1.3, 0.7, 1.6, 0.4, 1/1.3, 1/1.6};
+    //std::vector<double> weights;
+    //for (double weight = 0.4; weight <= 1.7; weight += 0.01) {
+        //weights.push_back(weight);
+    //}
+    std::vector<TH3D*> h3MassFlavorPairs_DATAMC_ISR;
+    std::vector<TH3D*> h3PtFlavorPairs_DATAMC_ISR;
+
+    // Constants for the weighting formula
+    double totalEvents = 10044793.0; //10174932.0;
+    double gXPairEvents = 2329762.0; //2387032.0;
+    double otherPairFactor = (totalEvents - gXPairEvents) / totalEvents;
+    double gXPairFactor = gXPairEvents / totalEvents;
+
+    double totalEvents2 = 0.0; //10174932.0;
+    double gXPairEvents2 = 0.0; //2387032.0;
+    double otherPairFactor2 = (totalEvents2 - gXPairEvents2) / totalEvents2;
+    double gXPairFactor2 = gXPairEvents2 / totalEvents2;
+
+    // Initialize histograms for each weight
+    for (double weight : weights) {
+        std::string histNameMass = Form("h3MassFlavorPairs_DATAMC_ISR%.0f", weight * 100);
+        std::string histNamePt = Form("h3PtFlavorPairs_DATAMC_ISR%.0f", weight * 100);
+
+        h3MassFlavorPairs_DATAMC_ISR.push_back(new TH3D(histNameMass.c_str(), ";MC;DATA; Mass", 
+                                                    3, 1, 4, 3, 1, 4, 200, 0, 200));
+        h3PtFlavorPairs_DATAMC_ISR.push_back(new TH3D(histNamePt.c_str(), ";MC;DATA; Pt", 
+                                                3, 1, 4, 3, 1, 4, 67, -1, 1));
+    }
+
+   TH2D* h2ctag = new TH2D("h2ctag", ";flavours;ctag; N", 7,-0.5,6.5,100,0,1);
+
+
+   TH2D* h1cstag = new TH2D("h1cstag", ";flav1;flav2; N",  12,-5.5,6.5,12,-5.5,6.5);
+   TH2D* h1udtag = new TH2D("h1udtag", ";flav1;flav2; N",  12,-5.5,6.5,12,-5.5,6.5);
+   TH2D* h1xxtag = new TH2D("h1xxtag", ";flav1;flav2; N",  12,-5.5,6.5,12,-5.5,6.5);
+
+   // Apply the helper function for 2D histograms and TProfile2D histograms
+   SetBinLabels2D(h2tag_c->GetXaxis(), h2tag_c->GetYaxis(), binLabels3, 3);
+   SetBinLabels2D(h2tag_u->GetXaxis(), h2tag_u->GetYaxis(), binLabels3, 3);
+   SetBinLabels2D(h2tag_x->GetXaxis(), h2tag_x->GetYaxis(), binLabels3, 3);
+
+   // Apply the helper function for TProfile2D histograms
+   SetBinLabels2D(p2matrixMass->GetXaxis(), p2matrixMass->GetYaxis(), binLabels12, 12);
+   SetBinLabels2D(p2matrixPt->GetXaxis(), p2matrixPt->GetYaxis(), binLabels12, 12);
+
+   // Apply the helper function for h2matrixN (2D histogram)
+   SetBinLabels2D(h2matrixN->GetXaxis(), h2matrixN->GetYaxis(), binLabels12, 12);
+   SetBinLabels2D(h1cstag->GetXaxis(), h1cstag->GetYaxis(), binLabels12, 12);
+   SetBinLabels2D(h1udtag->GetXaxis(), h1udtag->GetYaxis(), binLabels12, 12);
+   SetBinLabels2D(h1xxtag->GetXaxis(), h1xxtag->GetYaxis(), binLabels12, 12);
+
+
+   // Apply the helper function for 3D histograms
+   SetBinLabels3D(h3matrixMass, binLabels12, 12);
+   SetBinLabels3D(h3matrixPt, binLabels12, 12);
+
+   SetBinLabels1D(h2ctag->GetXaxis(), binLabels7, 7);
+   
+   SetBinLabels2D(h2_70->GetXaxis(), h2_70->GetYaxis(), binLabels7, 7);
+   SetBinLabels2D(h2_97->GetXaxis(), h2_97->GetYaxis(), binLabels7, 7);
+   SetBinLabels2D(h2_77_87->GetXaxis(), h2_77_87->GetYaxis(), binLabels7, 7);   
+
+   std::vector<double> scales;
+    for (double scale = 0.95; scale <= 1.05; scale += 0.001) {
+        scales.push_back(scale);
+    }
+
+    std::vector<double> scaleFactors;
+    for (double scale = 0.98; scale <= 1.02; scale += 0.002) {
+        scaleFactors.push_back(scale);
+    }
+
+   std::vector<std::vector<TH3D*>> h3MassFlavorPairs_DATAMC_Vector1 = initializeHistograms1(scales, "h3MassFlavorPairs_DATAMC_FSR", ";MC;DATA; Mass");
+   std::vector<std::vector<TH3D*>> h3PtFlavorPairs_DATAMC_Vector1 = initializeHistograms3(scales, "h3PtFlavorPairs_DATAMC_FSR", ";MC;DATA; Pt");
+
+    // Initialize the histograms
+    std::vector<std::vector<TH3D*>> h3MassFlavorPairs_DATAMC_Vector = initializeHistograms(scaleFactors, "h3MassFlavorPairs_DATAMC", ";MC;DATA; Mass");
+    std::vector<std::vector<TH3D*>> h3PtFlavorPairs_DATAMC_Vector = initializeHistograms2(scaleFactors, "h3PtFlavorPairs_DATAMC", ";MC;DATA; Pt");
+
+    std::vector<std::vector<TH3D*>> h3MassFlavorPairs_DATAMC_Vector_CHI = initializeHistograms4(scaleFactors, "h3MassFlavorPairs_DATAMC_CHI", ";MC;DATA; Mass");
+    std::vector<std::vector<TH3D*>> h3PtFlavorPairs_DATAMC_Vector_CHI = initializeHistograms5(scaleFactors, "h3PtFlavorPairs_DATAMC_CHI", ";MC;DATA; Pt");
+
+
+
+   TLorentzVector p4genjet1, p4genjet2, p4recojet1, p4recojet2, p4recojet1_scaled, p4recojet2_scaled, p4recojet1_scaled2, p4recojet2_scaled2, p4recojet_tag, p4recojet_probe;
+   TLorentzVector p4genjet1_scaled, p4genjet2_scaled, p4genjet1_scaled2, p4genjet2_scaled2;
+   TLorentzVector p4recojet_C, p4recojet_S, p4recojet1_C, p4recojet1_S, p4recojet2_C, p4recojet2_S;
+   TLorentzVector p4genjet_C, p4genjet_S, p4genjet1_C, p4genjet1_S, p4genjet2_C, p4genjet2_S;
+   TLorentzVector p4recojet_C_JER, p4recojet_S_JER, p4recojet_C_JER2, p4recojet_S_JER2, p4recojet_C_FSR, p4recojet_S_FSR, p4genjet_C_JER2, p4genjet_S_JER2;
+   TLorentzVector p4recojet1_FSR, p4recojet2_FSR, p4recojet1_JER, p4recojet2_JER;
+   TLorentzVector p4w_scaled, p4w_scaled_RESP, p4_scaled_C, p4_scaled_S;
+
+   // Initialize counters
+int count_cs = 0;
+int count_cs_true = 0;
+int count_cs_false = 0;
+int count_sc = 0;
+int count_sc_true = 0;
+int count_sc_false = 0;
+
+int countAll = 0;
+int countXg = 0;
+int countOther = 0;
+
+   curdir->cd();
+   Long64_t nentries = fChain->GetEntries();
+   Long64_t nbytes = 0, nb = 0;
+   auto now = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+   std::cout << std::ctime(&now) << std::endl<< flush;  
+   cout << "Processing " << nentries << " events" << endl << flush;
+   TStopwatch t;
+   t.Start();
+   const int nlap = 1000;
+   const int nlap2 = 80000;
+   //nentries = 100000;
+
+   double totalWeightSum = 0.0;
+   double XgWeightSum = 0.0;
+   double otherWeightSum = 0.0;
+
+   double totalWeightSum2 = 0.0;
+   double XgWeightSum2 = 0.0;
+   double otherWeightSum2 = 0.0;
+
+if (SCALED) { //|| CHI2
+    for (Long64_t jentry=0; jentry<nentries;jentry++) {
+        Long64_t ientry = LoadTree(jentry);
+        if (ientry < 0) break;
+        nb = fChain->GetEntry(jentry);   nbytes += nb;
+        TChain* chain = dynamic_cast<TChain*>(fChain);
+        TFile* currentFile = chain->GetFile();
+        if (jentry%nlap==0) {
+            cout << "." << flush;
+        }
+        if (jentry%nlap2==0 && jentry!=0) {
+            double time = t.RealTime();
+        if (time>0) cout << Form("\n\%1.0f ev/s\n",nlap2/time) << flush;
+            t.Reset();
+            t.Start();
+        }
+
+        if (fitProb > 0.2){
+            totalWeightSum += weight;
+
+            if (flav1 == 21 || flav2 == 21) {
+                XgWeightSum += weight;
+            }
+            else{
+                otherWeightSum += weight;
+            }
+        }   
+    }
+    std::cout << "Total Weight Sum: " << totalWeightSum << std::endl;
+    std::cout << "Xg Weight Sum: " << XgWeightSum << std::endl;
+    std::cout << "Other Weight Sum: " << otherWeightSum << std::endl;
+}
+
+for (Long64_t jentry=0; jentry<nentries;jentry++) {
+      Long64_t ientry = LoadTree(jentry);
+      if (ientry < 0) break;
+      nb = fChain->GetEntry(jentry);   nbytes += nb;
+      TChain* chain = dynamic_cast<TChain*>(fChain);
+      TFile* currentFile = chain->GetFile();
+      //if (!DATA) jer.update(currentFile->GetName());
+      if (SMEAR) jer.update(currentFile->GetName());
+      //if (DATA) jer_data.update(currentFile->GetName());
+      g_ctag_high = CtagThresholdFromFilename(currentFile->GetName());
+      // Print the threshold once when we switch to a new input file
+      {
+          static std::string lastFileSeen;
+          if (lastFileSeen != currentFile->GetName()) {
+              std::cout << "  →  tight c‑tag WP = " << g_ctag_high << std::endl;
+              lastFileSeen = currentFile->GetName();
+          }
+      }
+
+
+      // if (Cut(ientry) < 0) continue;
+
+      if (jentry%nlap==0) {
+         cout << "." << flush;
+      }
+      if (jentry%nlap2==0 && jentry!=0) {
+         double time = t.RealTime();
+      if (time>0) cout << Form("\n\%1.0f ev/s\n",nlap2/time) << flush;
+         t.Reset();
+         t.Start();
+      }
+      p4genjet1.SetPtEtaPhiM(gen_pt1, gen_eta1, gen_phi1, gen_m1);
+      p4genjet2.SetPtEtaPhiM(gen_pt2, gen_eta2, gen_phi2, gen_m2);
+      p4recojet1.SetPtEtaPhiM(pt1, eta1, phi1, m1);
+      p4recojet2.SetPtEtaPhiM(pt2, eta2, phi2, m2);
+      /*if (DATA) {
+        double pt1_smear = jer_data.smearPt(pt1, eta1, pfRho);
+        double pt2_smear = jer_data.smearPt(pt2, eta2, pfRho);
+
+        // Update the reco jet 4-vectors
+        p4recojet1.SetPtEtaPhiM(pt1_smear, eta1, phi1, m1 * (pt1_smear/pt1));
+        p4recojet2.SetPtEtaPhiM(pt2_smear, eta2, phi2, m2 * (pt2_smear/pt2));
+
+      } else {
+        double pt1_smear = jer.hybridSmearPt(pt1, gen_pt1, eta1, pfRho);
+        double pt2_smear = jer.hybridSmearPt(pt2, gen_pt2, eta2, pfRho);
+
+        // Update the reco jet 4-vectors
+        p4recojet1.SetPtEtaPhiM(pt1_smear, eta1, phi1, m1 * (pt1_smear/pt1));
+        p4recojet2.SetPtEtaPhiM(pt2_smear, eta2, phi2, m2 * (pt2_smear/pt2));
+      }
+    */
+      double pt1 = p4recojet1.Pt();
+      double pt2 = p4recojet2.Pt();
+      double eta1 = p4recojet1.Eta();
+      double eta2 = p4recojet2.Eta();
+      double phi1 = p4recojet1.Phi();
+      double phi2 = p4recojet2.Phi();
+      double m1 = p4recojet1.M();
+      double m2 = p4recojet2.M();
+      
+      double genmass = (p4genjet1 + p4genjet2).M();
+      double recomass = (p4recojet1 + p4recojet2).M();
+      double reco_pt = (p4recojet1 + p4recojet2).Pt();
+      double gen_pt = (p4genjet1 + p4genjet2).Pt(); 
+
+      double recomass2 = 0;
+
+      double reco_dpt2 = (p4recojet1.Pt()-p4recojet2.Pt())/(p4recojet1.Pt()+p4recojet2.Pt());
+
+      int pairIndexDATA = DetermineJetPairDATA(ctag1,ctag2);
+      int pairIndexMC_test = DetermineJetPairMC_test(flav1,flav2);
+      int pairIndexMC = DetermineJetPairMC(flav1,flav2);
+
+    if (fitProb > 0.2){ 
+        if ((ctag1 > g_ctag_high && ctag2 <= g_ctag_high) ||
+               ((ctag1 > g_ctag_high && ctag2 > g_ctag_high) && ctag1 > ctag2) ||
+               ((ctag1 <= g_ctag_high && ctag2 <= g_ctag_high) && jentry%2 == 0)){
+               p4recojet_C = p4recojet1;
+               p4recojet_S = p4recojet2;
+        } else {
+            p4recojet_S = p4recojet1;
+            p4recojet_C = p4recojet2;
+        }
+
+        double reco_dpt = (p4recojet_S.Pt()-p4recojet_C.Pt())/(p4recojet_S.Pt()+p4recojet_C.Pt());
+
+        if (SMEAR){
+            // Apply JER smearing to jets and fill histograms
+            double Nsmear = 1;
+            // Smear the pts stochastically, using the previous smeared pt as input each time
+            for (int i = 0; i < Nsmear; ++i) {
+                double pt1_smeared_i = jer.smearPt(pt1, eta1, pfRho);
+                double pt2_smeared_i = jer.smearPt(pt2, eta2, pfRho);
+            
+                // Update the reco jet 4-vectors
+                p4recojet1_scaled2.SetPtEtaPhiM(pt1_smeared_i, eta1, phi1, m1 * (pt1_smeared_i/pt1));
+                p4recojet2_scaled2.SetPtEtaPhiM(pt2_smeared_i, eta2, phi2, m2 * (pt2_smeared_i/pt2));
+
+                // Set C and S jets based on event topology
+                if ((ctag1 > g_ctag_high && ctag2 <= g_ctag_high) ||
+                    ((ctag1 > g_ctag_high && ctag2 > g_ctag_high) && ctag1 > ctag2) ||
+                    ((ctag1 <= g_ctag_high && ctag2 <= g_ctag_high) && jentry % 2 == 0)) {
+                    p4recojet_C_JER2 = p4recojet1_scaled2;
+                    p4recojet_S_JER2 = p4recojet2_scaled2;
+                } else {
+                    p4recojet_C_JER2 = p4recojet2_scaled2;
+                    p4recojet_S_JER2 = p4recojet1_scaled2;
+                }
+
+                // Calculate mass and dpt after smearing
+                double scaledMass_JER_i = (p4recojet1_scaled2 + p4recojet2_scaled2).M();
+                double scaledpt_JER_i = (p4recojet_S_JER2.Pt() - p4recojet_C_JER2.Pt()) / (p4recojet_S_JER2.Pt() + p4recojet_C_JER2.Pt());
+
+                h_smear_mass->Fill(scaledMass_JER_i, weight/Nsmear);
+                h_smear_pt->Fill(scaledpt_JER_i, weight/Nsmear);
+                h3MassFlavorPairs_DATAMC_JER_smear->Fill(pairIndexMC, pairIndexDATA, scaledMass_JER_i, weight/Nsmear);
+                h3PtFlavorPairs_DATAMC_JER_smear->Fill(pairIndexMC, pairIndexDATA, scaledpt_JER_i, weight/Nsmear);
+            }
+            h3MassFlavorPairs_DATAMC->Fill(pairIndexMC, pairIndexDATA, recomass, weight);
+            h3PtFlavorPairs_DATAMC->Fill(pairIndexMC, pairIndexDATA, reco_dpt, weight);
+
+        }
+
+        else if (PSWEIGHTS) {
+            // Fill nominal distribution
+            h3MassFlavorPairs_DATAMC->Fill(pairIndexMC, pairIndexDATA, recomass, weight);
+            h3PtFlavorPairs_DATAMC  ->Fill(pairIndexMC, pairIndexDATA, reco_dpt, weight);
+
+            // Fill PS-weights variations
+            for (size_t i = 0; i < 44; ++i) {
+                const std::string &label = psLabels[i];
+                double scale = (*PSWgts)[i];
+                h3PSMassMap[label]->Fill(pairIndexMC, pairIndexDATA, recomass, scale * weight);
+                h3PSPtMap  [label]->Fill(pairIndexMC, pairIndexDATA, reco_dpt,  scale * weight);
+            }
+        }
+
+        else if (ITERATION){
+
+            // First, apply JER scaling
+            TLorentzVector p4recojet1_JER = (p4recojet1 - p4genjet1) * 1.01 + p4genjet1;
+            TLorentzVector p4recojet2_JER = (p4recojet2 - p4genjet2) * 1.01 + p4genjet2;
+
+            // Then, apply FSR scaling to the JER-scaled jets
+            TLorentzVector p4recojet1_JER_FSR = 0.996 * p4recojet1_JER;
+            TLorentzVector p4recojet2_JER_FSR = 0.996 * p4recojet2_JER;
+
+            double recomass_JER_FSR = (p4recojet1_JER_FSR + p4recojet2_JER_FSR).M();
+
+            // ISR
+            if (flav1 == 21 || flav2 == 21) {
+                // For gX pairs, use each weight directly
+                double weightXg = 1.04;
+                h3MassFlavorPairs_DATAMC->Fill(pairIndexMC, pairIndexDATA, recomass_JER_FSR, weightXg);
+            } else {
+                double weightXg = 1.04;
+                double otherWeight = (1 - (gXPairFactor * weightXg)) / otherPairFactor;
+                // Fill histograms using the calculated weight for "other" pairs
+                h3MassFlavorPairs_DATAMC->Fill(pairIndexMC, pairIndexDATA, recomass_JER_FSR, otherWeight);
+            }
+            if (recomass < 70) {h2_70->Fill(abs(min(flav1,6)), abs(min(flav2,6)));}
+            if (recomass > 97) {h2_97->Fill(abs(min(flav1,6)), abs(min(flav2,6)));}
+            if (recomass > 77 && recomass < 87) {h2_77_87->Fill(abs(min(flav1,6)), abs(min(flav2,6)));}                 
+        }
+
+        else if (DATA) {
+            h3MassFlavorPairs_DATAMC->Fill(pairIndexMC, pairIndexDATA, recomass);
+            h3PtFlavorPairs_DATAMC->Fill(pairIndexMC, pairIndexDATA, reco_dpt);
+        } //DATA
+
+        else if (NOTSCALED){
+            for (size_t i = 0; i < scaleFactors.size(); ++i) {
+                for (size_t j = 0; j < scaleFactors.size(); ++j) {
+                    double scale_C = scaleFactors[i];
+                    double scale_S = scaleFactors[j];
+                    // Calculate scaled components separately
+                    double scaledPx = p4recojet_C.Px() * scale_C + p4recojet_S.Px() * scale_S;
+                    double scaledPy = p4recojet_C.Py() * scale_C + p4recojet_S.Py() * scale_S;
+                    double scaledPz = p4recojet_C.Pz() * scale_C + p4recojet_S.Pz() * scale_S;
+                    double scaledE  = p4recojet_C.E() * scale_C + p4recojet_S.E() * scale_S;
+                    // Set the scaled 4-vector
+                    p4w_scaled.SetPxPyPzE(scaledPx, scaledPy, scaledPz, scaledE);
+                    // The scaled mass
+                    double scaledMass = p4w_scaled.M();
+                    // The scaled delta pt
+                    double scaledpt = (scale_S * p4recojet_S.Pt()-scale_C * p4recojet_C.Pt())/(scale_S * p4recojet_S.Pt()+scale_C * p4recojet_C.Pt());
+
+                    if (pairIndexMC == 1){ //flav == 3 or flav == 4
+                        h3MassFlavorPairs_DATAMC_Vector[i][j]->Fill(pairIndexMC, pairIndexDATA, scaledMass, weight);
+                        h3PtFlavorPairs_DATAMC_Vector[i][j]->Fill(pairIndexMC, pairIndexDATA, scaledpt, weight);
+                    }
+                    else {
+                        h3MassFlavorPairs_DATAMC_Vector[i][j]->Fill(pairIndexMC, pairIndexDATA, recomass, weight);
+                        h3PtFlavorPairs_DATAMC_Vector[i][j]->Fill(pairIndexMC, pairIndexDATA, reco_dpt, weight);
+                    }
+                }
+            }
+            h3MassFlavorPairs_DATAMC->Fill(pairIndexMC, pairIndexDATA, recomass, weight);
+            h3PtFlavorPairs_DATAMC->Fill(pairIndexMC, pairIndexDATA, reco_dpt, weight);
+
+            h2ctag->Fill(abs(min(flav1,6)),ctag1);
+            h2ctag->Fill(abs(min(flav2,6)),ctag2);
+            h2matrixN->Fill(min(flav1,6), min(flav2,6));
+            p2matrixMass->Fill(min(flav1,6), min(flav2,6),recomass,weight);
+            p2matrixPt->Fill(min(flav1,6), min(flav2,6),reco_dpt2,weight);
+            h3matrixMass->Fill(min(flav1,6), min(flav2,6),recomass,weight);
+            h3matrixPt->Fill(min(flav1,6), min(flav2,6),reco_dpt2,weight);
+
+            // Alternating jets for tag and probe based on event number
+            double tag, probe, flav_tag, ctag_tag, flav_probe, ctag_probe;
+
+            if (jentry % 2 == 0) {
+                // Even events: jet1 is tag, jet2 is probe
+                p4recojet_tag = p4recojet1;
+                p4recojet_probe = p4recojet2;
+
+                tag = Tag(ctag1);  // Use ctag1 for the tag jet
+                flav_tag = Flav(flav1);
+                ctag_tag = ctag1;
+
+                probe = Tag(ctag2); // Use ctag2 for the probe jet
+                flav_probe = Flav(flav2);
+                ctag_probe = ctag2;
+            } else {
+                // Odd events: jet2 is tag, jet1 is probe
+                p4recojet_tag = p4recojet2;
+                p4recojet_probe = p4recojet1;
+
+                tag = Tag(ctag2);  // Use ctag2 for the tag jet
+                flav_tag = Flav(flav2);
+                ctag_tag = ctag2;
+
+                probe = Tag(ctag1); // Use ctag1 for the probe jet
+                flav_probe = Flav(flav1);
+                ctag_probe = ctag1;
+            }
+
+            // Perform your tagging logic for the tag jet
+            if (ctag_tag > g_ctag_high) {
+                h2tag_c->Fill(probe, flav_probe);  // c-tagged
+            } 
+            if (ctag_tag < 0.06) {
+                h2tag_u->Fill(probe, flav_probe);  // u-tagged
+            } 
+            if (ctag_tag < g_ctag_high && ctag_tag > CTAG_LOW) {
+                h2tag_x->Fill(probe, flav_probe);  // intermediate region
+            }
+
+            if (pairIndexDATA == 1) h1cstag->Fill(min(flav1,6), min(flav2,6));
+            if (pairIndexDATA == 2) h1udtag->Fill(min(flav1,6), min(flav2,6));
+            if (pairIndexDATA == 3) h1xxtag->Fill(min(flav1,6), min(flav2,6));
+        }
+      
+      
+        else if (SCALED){
+            double FSR_UP = (*PSWgts)[5] / (*PSWgts)[0]; //2
+            double FSR_UP2 = (*PSWgts)[7] / (*PSWgts)[0]; //4
+            double FSR_DOWN = (*PSWgts)[4] / (*PSWgts)[0]; //0.5
+            double FSR_DOWN2 = (*PSWgts)[6] / (*PSWgts)[0]; //0.25
+            
+            double ISR_UP = (*PSWgts)[27] / (*PSWgts)[0]; //2
+            double ISR_DOWN = (*PSWgts)[26] / (*PSWgts)[0]; //0.5
+            
+            if ((ctag1 > g_ctag_high && ctag2 <= g_ctag_high) ||
+            ((ctag1 > g_ctag_high && ctag2 > g_ctag_high) && ctag1 > ctag2) ||
+            ((ctag1 <= g_ctag_high && ctag2 <= g_ctag_high) && jentry%2 == 0)){
+                p4recojet_C = p4recojet1;
+                p4recojet_S = p4recojet2;
+            }
+            else {
+                p4recojet_S = p4recojet1;
+                p4recojet_C = p4recojet2;
+            }
+
+            double reco_dpt = (p4recojet_S.Pt()-p4recojet_C.Pt())/(p4recojet_S.Pt()+p4recojet_C.Pt());
+
+            h1gen_vs_reco_mass->Fill(recomass/genmass, weight);
+            double scaledPx_RESP = p4recojet_C.Px() * 0.994 + p4recojet_S.Px() * 1.002;
+            double scaledPy_RESP = p4recojet_C.Py() * 0.994 + p4recojet_S.Py() * 1.002;
+            double scaledPz_RESP = p4recojet_C.Pz() * 0.994 + p4recojet_S.Pz() * 1.002;
+            double scaledE_RESP  = p4recojet_C.E() * 0.994 + p4recojet_S.E() * 1.002;
+            p4w_scaled_RESP.SetPxPyPzE(scaledPx_RESP, scaledPy_RESP, scaledPz_RESP, scaledE_RESP);
+            double scaledMass_RESP = p4w_scaled_RESP.M();
+            double scaledpt_RESP = (1.002 * p4recojet_S.Pt() - 0.994 * p4recojet_C.Pt())/(1.002 * p4recojet_S.Pt() + 0.994 * p4recojet_C.Pt());
+            if (pairIndexMC == 1){
+                h3MassFlavorPairs_DATAMC_RESP->Fill(pairIndexMC, pairIndexDATA, scaledMass_RESP, weight);
+                h3PtFlavorPairs_DATAMC_RESP->Fill(pairIndexMC, pairIndexDATA, scaledpt_RESP, weight);
+            }
+            else {
+                h3MassFlavorPairs_DATAMC_RESP->Fill(pairIndexMC, pairIndexDATA, recomass, weight);
+                h3PtFlavorPairs_DATAMC_RESP->Fill(pairIndexMC, pairIndexDATA, reco_dpt, weight);
+            }
+
+
+            //x->Fill(((p4recojet1.Pt() - p4genjet1.Pt()) * 1.1)/p4genjet1.Pt());
+            //xx->Fill((((p4recojet1.Pt() - p4genjet1.Pt()) * 1.1)/p4genjet1.Pt())*(((p4recojet1.Pt() - p4genjet1.Pt()) * 1.1)/p4genjet1.Pt()));
+            //y->Fill(((p4recojet2.Pt() - p4genjet2.Pt()) * 1.1)/p4genjet2.Pt());
+            //yy->Fill((((p4recojet2.Pt() - p4genjet2.Pt()) * 1.1)/p4genjet2.Pt())*(((p4recojet2.Pt() - p4genjet2.Pt()) * 1.1)/p4genjet2.Pt()));
+            //xy->Fill((((p4recojet1.Pt() - p4genjet1.Pt()) * 1.1)/p4genjet1.Pt()) * (((p4recojet2.Pt() - p4genjet2.Pt()) * 1.1)/p4genjet2.Pt()));
+
+            ptrecovsgen->Fill(p4recojet1.Pt()/p4genjet1.Pt(), weight);
+            ptrecovsgen->Fill(p4recojet2.Pt()/p4genjet2.Pt(), weight);
+            
+            h3MassFlavorPairs_DATAMC_up->Fill(pairIndexMC, pairIndexDATA, recomass, FSR_UP * weight);
+            h3PtFlavorPairs_DATAMC_up->Fill(pairIndexMC, pairIndexDATA, reco_dpt, FSR_UP * weight);
+
+            h3MassFlavorPairs_DATAMC_down->Fill(pairIndexMC, pairIndexDATA, recomass, FSR_DOWN * weight);
+            h3PtFlavorPairs_DATAMC_down->Fill(pairIndexMC, pairIndexDATA, reco_dpt, FSR_DOWN * weight);
+
+            h3MassFlavorPairs_DATAMC_up2->Fill(pairIndexMC, pairIndexDATA, recomass, FSR_UP2 * weight);
+            h3PtFlavorPairs_DATAMC_up2->Fill(pairIndexMC, pairIndexDATA, reco_dpt, FSR_UP2 * weight);
+
+            h3MassFlavorPairs_DATAMC_down2->Fill(pairIndexMC, pairIndexDATA, recomass, FSR_DOWN2 * weight);
+            h3PtFlavorPairs_DATAMC_down2->Fill(pairIndexMC, pairIndexDATA, reco_dpt, FSR_DOWN2 * weight);
+
+            h3MassFlavorPairs_DATAMC->Fill(pairIndexMC, pairIndexDATA, recomass, weight);
+            h3PtFlavorPairs_DATAMC->Fill(pairIndexMC, pairIndexDATA, reco_dpt, weight);
+
+            // ISR
+            countAll++;
+            if (flav1 == 21 || flav2 == 21) {
+                countXg++;
+                // For gX pairs, use each weight directly
+                for (size_t i = 0; i < weights.size(); ++i) {
+                    double weightXg = weights[i];
+                    h3MassFlavorPairs_DATAMC_ISR[i]->Fill(pairIndexMC, pairIndexDATA, recomass, weightXg * weight);
+                    h3PtFlavorPairs_DATAMC_ISR[i]->Fill(pairIndexMC, pairIndexDATA, reco_dpt, weightXg * weight);
+                }
+            } else {
+                countOther++;
+                // For other pairs, calculate the adjusted weight
+                for (size_t i = 0; i < weights.size(); ++i) {
+                    double weightXg = weights[i];
+                    double otherWeight = (1 - (XgWeightSum/totalWeightSum * weightXg)) / (otherWeightSum/totalWeightSum);
+                    //(1 - (gXPairFactor * weightXg)) / otherPairFactor;
+                    h3MassFlavorPairs_DATAMC_ISR[i]->Fill(pairIndexMC, pairIndexDATA, recomass, otherWeight * weight);
+                    h3PtFlavorPairs_DATAMC_ISR[i]->Fill(pairIndexMC, pairIndexDATA, reco_dpt, otherWeight * weight);
+                }
+            }
+
+            // Loop over pt scaling factors to calculate and fill histograms
+            for (size_t i = 0; i < ptscales.size(); ++i) {  
+                double ptscale = ptscales[i];
+
+                // Jet-1
+                double f1   = ScaleResponseFunc(p4genjet1.Pt());
+                double pt1_scaled = f1 * (((p4recojet1.Pt()/f1) - p4genjet1.Pt()) * ptscale + p4genjet1.Pt());
+                //double pt1_scaled = (((p4recojet1.Pt()) - p4genjet1.Pt()) * ptscale + p4genjet1.Pt());
+                // Jet-2
+                double f2   = ScaleResponseFunc(p4genjet2.Pt());
+                double pt2_scaled = f2 * (((p4recojet2.Pt()/f2) - p4genjet2.Pt()) * ptscale + p4genjet2.Pt());
+                //double pt2_scaled = (((p4recojet2.Pt()) - p4genjet2.Pt()) * ptscale + p4genjet2.Pt());
+
+                p4recojet1_scaled.SetPtEtaPhiM(pt1_scaled, eta1, phi1, m1 * (pt1_scaled/pt1));
+                p4recojet2_scaled.SetPtEtaPhiM(pt2_scaled, eta2, phi2, m2 * (pt2_scaled/pt2));
+
+                if ((ctag1 > g_ctag_high && ctag2 <= g_ctag_high) ||
+                    ((ctag1 > g_ctag_high && ctag2 > g_ctag_high) && ctag1 > ctag2) ||
+                    ((ctag1 <= g_ctag_high && ctag2 <= g_ctag_high) && jentry%2 == 0)){
+                    p4recojet_C_JER = p4recojet1_scaled;
+                    p4recojet_S_JER = p4recojet2_scaled;
+                }
+                else {
+                    p4recojet_C_JER = p4recojet2_scaled;
+                    p4recojet_S_JER = p4recojet1_scaled;
+                }
+
+                double scaledMass_JER = (p4recojet1_scaled + p4recojet2_scaled).M();
+                double scaledpt_JER = (p4recojet_S_JER.Pt() - p4recojet_C_JER.Pt()) / (p4recojet_S_JER.Pt() + p4recojet_C_JER.Pt());
+
+                h3MassFlavorPairs_DATAMC_JER[i]->Fill(pairIndexMC, pairIndexDATA, scaledMass_JER, weight);
+                h3PtFlavorPairs_DATAMC_JER[i]->Fill(pairIndexMC, pairIndexDATA, scaledpt_JER, weight);
+                
+            } //JER
+            // Fill scaled response: reco_pt_scaled / gen_pt for each jet
+
+            TLorentzVector p4recoW, p4genW;
+
+            p4recoW = p4recojet1 + p4recojet2;
+            p4genW = p4genjet1 + p4genjet2;
+
+            if (p4genW.Pt() > 0){
+
+                prof_resp->Fill(p4genW.Pt(), p4recoW.Pt()/p4genW.Pt(), weight);
+                h2_resp->Fill(p4genW.Pt(), p4recoW.Pt()/p4genW.Pt(), weight);
+            }  
+                
+            
+            // FSR
+            for (size_t i = 0; i < scales.size(); ++i) {
+                double scale_FSR = scales[i];
+                /*double fitProb_orig = fitProb;
+
+                // Compute chi^2
+                double dchi2 = -((recomass - 80.4) * (recomass - 80.4)) / (10.3131 * 10.3131)
+                                + ((recomass * scale_FSR - 80.4) * (recomass * scale_FSR - 80.4)) / (10.3131 * 10.3131);
+
+                double chi2_orig = -2*log(fitProb_orig);          
+                double chi2_scaled = chi2_orig + dchi2;
+
+                // Compute fitProb
+                double fitProb_scaled = exp(-0.5 * chi2_scaled);
+                */
+                 
+                double scale = scales[i];
+                p4recojet1_FSR = scale * p4recojet1;
+                p4recojet2_FSR = scale * p4recojet2;
+                p4recojet_C_FSR = scale * p4recojet_C;
+                p4recojet_S_FSR = scale * p4recojet_S;
+                double recomass_FSR = (p4recojet1_FSR + p4recojet2_FSR).M();
+                double reco_dpt_FSR = (p4recojet_S_FSR.Pt()-p4recojet_C_FSR.Pt())/(p4recojet_S_FSR.Pt()+p4recojet_C_FSR.Pt());
+                h3MassFlavorPairs_DATAMC_Vector1[i][0]->Fill(pairIndexMC, pairIndexDATA, recomass_FSR, weight);  
+                h3PtFlavorPairs_DATAMC_Vector1[i][0]->Fill(pairIndexMC, pairIndexDATA, reco_dpt_FSR, weight);
+                
+            } // FSR
+        } //SCALED
+        else if (CHI2) {
+            // JER SCALING
+            p4recojet1_JER = p4recojet1; //(p4recojet1 - p4genjet1) * 1.0225 + p4genjet1; //p4recojet1;
+            p4recojet2_JER = p4recojet2; //(p4recojet2 - p4genjet2) * 1.0225 + p4genjet2; //p4recojet2;
+            // FSR SCALING
+            p4recojet1_FSR = p4recojet1_JER; //0.99311 * p4recojet1_JER;
+            p4recojet2_FSR = p4recojet2_JER; //0.99311 * p4recojet2_JER;
+            // MASS FOR JET1 & JET2
+            double Mass = (p4recojet1_FSR + p4recojet2_FSR).M();
+
+                if ((ctag1 > g_ctag_high && ctag2 <= g_ctag_high) ||
+                    ((ctag1 > g_ctag_high && ctag2 > g_ctag_high) && ctag1 > ctag2) ||
+                    ((ctag1 <= g_ctag_high && ctag2 <= g_ctag_high) && jentry%2 == 0)){
+                // C = 1 & S = 2
+                p4recojet_C_JER = p4recojet1_JER;
+                p4recojet_S_JER = p4recojet2_JER;
+            }
+            else {
+                // S = 1 & C = 2
+                p4recojet_S_JER = p4recojet1_JER;
+                p4recojet_C_JER = p4recojet2_JER;
+            }
+            // FSR SCALING FOR C & S
+            p4recojet_C_FSR = p4recojet_C_JER; //0.99311 * p4recojet_C_JER;
+            p4recojet_S_FSR = p4recojet_S_JER; //0.99311 * p4recojet_S_JER;
+
+            // DELTA PT FOR C & S
+            double dpt = (p4recojet_S_FSR.Pt()-p4recojet_C_FSR.Pt())/(p4recojet_S_FSR.Pt()+p4recojet_C_FSR.Pt());
+
+            double weightXg = 1; //0.66;
+            double otherWeight = 1; //(1 - (XgWeightSum/totalWeightSum * weightXg)) / (otherWeightSum/totalWeightSum);
+            bool isGluon = (flav1 == 21 || flav2 == 21);
+
+            double FSR_UP = (*PSWgts)[5] / (*PSWgts)[0]; //2
+            double FSR_UP2 = (*PSWgts)[7] / (*PSWgts)[0]; //4
+            double FSR_DOWN = (*PSWgts)[4] / (*PSWgts)[0]; //0.5
+            double FSR_DOWN2 = (*PSWgts)[6] / (*PSWgts)[0]; //0.25
+
+            double ISR_UP = (*PSWgts)[27] / (*PSWgts)[0]; //2
+            double ISR_DOWN = (*PSWgts)[26] / (*PSWgts)[0]; //0.5
+
+            for (size_t i = 0; i < scaleFactors.size(); ++i) {
+                double scale_C = scaleFactors[i];
+                for (size_t j = 0; j < scaleFactors.size(); ++j) {
+                    double scale_S = scaleFactors[j];
+
+                    // Calculate scaled components separately
+                    double scaledPx = p4recojet_C_FSR.Px() * scale_C + p4recojet_S_FSR.Px() * scale_S;
+                    double scaledPy = p4recojet_C_FSR.Py() * scale_C + p4recojet_S_FSR.Py() * scale_S;
+                    double scaledPz = p4recojet_C_FSR.Pz() * scale_C + p4recojet_S_FSR.Pz() * scale_S;
+                    double scaledE  = p4recojet_C_FSR.E() * scale_C + p4recojet_S_FSR.E() * scale_S;
+
+                    //double scaledPt = (p4recojet_C_FSR * scale_C + p4recojet_S_FSR * scale_S).Pt();
+                    //double scaledMass = (p4recojet_C_FSR * scale_C + p4recojet_S_FSR * scale_S).M();
+
+                    // Set the scaled 4-vector
+                    p4w_scaled.SetPxPyPzE(scaledPx, scaledPy, scaledPz, scaledE);
+
+                    // The scaled mass
+                    double scaledMass = p4w_scaled.M();
+                    // The scaled delta pt
+                    double scaledpt = (scale_S * p4recojet_S_FSR.Pt()-scale_C * p4recojet_C_FSR.Pt())/(scale_S * p4recojet_S_FSR.Pt()+scale_C * p4recojet_C_FSR.Pt());
+/*
+                    // Scale the four-vectors directly
+                    p4_scaled_C = p4recojet_C_FSR * scale_C;
+                    p4_scaled_S = p4recojet_S_FSR * scale_S;
+
+                    // Add the scaled four-vectors
+                    p4w_scaled = p4_scaled_C + p4_scaled_S;
+
+                    // Calculate the scaled mass
+                    double scaledMass = p4w_scaled.M();
+
+                    // Calculate the scaled delta pT
+                    double scaledpt = (p4_scaled_S.Pt() - p4_scaled_C.Pt()) / (p4_scaled_S.Pt() + p4_scaled_C.Pt());
+*/
+                    double fitProb_orig = fitProb;
+
+                    // Compute chi^2
+                    double dchi2 = -((recomass - 80.4) * (recomass - 80.4)) / (10.3131 * 10.3131)
+                                    + ((scaledMass - 80.4) * (scaledMass - 80.4)) / (10.3131 * 10.3131);
+
+                    double chi2_orig = -2*log(fitProb_orig);      
+                    double chi2_scaled = chi2_orig + dchi2;
+
+                    // Compute fitProb
+                    double fitProb_scaled = exp(-0.5 * chi2_scaled);
+                    
+                        if (pairIndexMC == 1){ //erikseen c ja s!
+                            h3MassFlavorPairs_DATAMC_Vector_CHI[i][j]->Fill(pairIndexMC, pairIndexDATA, scaledMass, FSR_UP2 * otherWeight * weight);
+                            h3PtFlavorPairs_DATAMC_Vector_CHI[i][j]->Fill(pairIndexMC, pairIndexDATA, scaledpt, FSR_UP2 * otherWeight * weight);
+                        
+                        }
+                        else if (isGluon){
+                            h3MassFlavorPairs_DATAMC_Vector_CHI[i][j]->Fill(pairIndexMC, pairIndexDATA, Mass, FSR_UP2 * weightXg * weight);
+                            h3PtFlavorPairs_DATAMC_Vector_CHI[i][j]->Fill(pairIndexMC, pairIndexDATA, dpt, FSR_UP2 * weightXg * weight);
+                        }
+                        else {
+                            h3MassFlavorPairs_DATAMC_Vector_CHI[i][j]->Fill(pairIndexMC, pairIndexDATA, Mass, FSR_UP2 * otherWeight * weight);
+                            h3PtFlavorPairs_DATAMC_Vector_CHI[i][j]->Fill(pairIndexMC, pairIndexDATA, dpt, FSR_UP2 * otherWeight * weight);
+                        
+                        }
+                    
+                }
+            } 
+        }//Chi2
+    }
+   } // jentry
+
+    std::cout << "Total Weight2 Sum: " << totalWeightSum2 << std::endl;
+    std::cout << "Xg Weight2 Sum: " << XgWeightSum2 << std::endl;
+    std::cout << "Other Weight2 Sum: " << otherWeightSum2 << std::endl;
+
+   // Calculate ratios after the loop
+    double cs_true_ratio = (count_cs > 0) ? static_cast<double>(count_cs_true) / count_cs : 0.0;
+    double cs_false_ratio = (count_cs > 0) ? static_cast<double>(count_cs_false) / count_cs : 0.0;
+
+    double sc_true_ratio = (count_sc > 0) ? static_cast<double>(count_sc_true) / count_sc : 0.0;
+    double sc_false_ratio = (count_sc > 0) ? static_cast<double>(count_sc_false) / count_sc : 0.0;
+
+    // Print the counts and calculated ratios
+    std::cout << "count_cs: " << count_cs << ", count_cs_true: " << count_cs_true << ", count_cs_false: " << count_cs_false << std::endl;
+    std::cout << "count_sc: " << count_sc << ", count_sc_true: " << count_sc_true << ", count_sc_false: " << count_sc_false << std::endl;
+
+    std::cout << "CS True Ratio (True/All): " << cs_true_ratio << std::endl;
+    std::cout << "CS False Ratio (False/All): " << cs_false_ratio << std::endl;
+
+    std::cout << "SC True Ratio (True/All): " << sc_true_ratio << std::endl;
+    std::cout << "SC False Ratio (False/All): " << sc_false_ratio << std::endl;
+
+    std::cout << "All events (10174932): " << countAll << std::endl;
+    std::cout << "Xg events (2387032): " << countXg << std::endl;
+    std::cout << "Other events (7787900): " << countOther << std::endl;
+
+   // Write full-4vector response histograms
+   fout->Write();
+   fout->Close();
+   exit(0);
+}

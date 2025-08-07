@@ -1,0 +1,7 @@
+*.root
+/pdf
+/old_scripts
+/rootfiles
+/output
+/processed_histograms
+.DS_Store
