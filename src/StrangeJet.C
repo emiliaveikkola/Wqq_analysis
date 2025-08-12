@@ -1263,6 +1263,7 @@ TH1D *h_c_btag_cvb_pn80 = new TH1D("h_c_btag_cvb_pn80", "CvB PNet for c-jets in 
       } // for j
     } // for jetloop i
   } // for jentry
+  std::cout << "\n[StrangeJet] Output written to: " << fout->GetName() << std::endl;
   fout->Write();
   fout->Close();
   exit(0);
