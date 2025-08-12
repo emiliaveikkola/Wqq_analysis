@@ -1,5 +1,5 @@
 #define StrangeJet_cxx
-#include "StrangeJet.h"
+#include "../interface/StrangeJet.h"
 #include <TH2.h>
 #include <TH1.h>
 #include <TStyle.h>
@@ -14,7 +14,7 @@
 #include <TLegend.h>
 #include <TColor.h>
 #include <TStopwatch.h>
-#include "tdrstyle_mod22.C"
+#include "../minitools/tdrstyle_mod22.C"
 
 bool    debug = false;
 
@@ -155,7 +155,7 @@ void StrangeJet::Loop(){
   int nxbins_one = sizeof(xbins_one) / sizeof(xbins_one[0]) - 1;
   
   TDirectory *curdir = gDirectory;
-  TFile *fout = new TFile("output_z2.root","recreate");
+  TFile *fout = new TFile("output/StrangeJet.root","recreate");
   
   TProfile *pu0 = new TProfile("pu0",";Ptjet;has non-zero energysum",nptd,vptd);
   
@@ -587,7 +587,7 @@ TH1D *h_c_btag_cvb_pn80 = new TH1D("h_c_btag_cvb_pn80", "CvB PNet for c-jets in 
   t.Start();
   const int nlap = 1000;
   const int nlap2 = 80000;
-  //nentries = 100000;
+  nentries = 100000;
   for (Long64_t jentry=0; jentry<nentries;jentry++) {
     Long64_t ientry = LoadTree(jentry);
     if (ientry < 0) break;
