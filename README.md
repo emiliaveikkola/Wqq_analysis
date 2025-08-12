@@ -2,7 +2,7 @@
 
 # Wqq_analysis
 
-A small ROOT-based analysis project. C++ headers live in `interface/`, sources in `src/`, and ROOT macros in `make/`. A Makefile builds a shared library from `src/` and then runs macros that drive the analysis.
+A ROOT-based analysis project. C++ headers live in `interface/`, sources in `src/`, and ROOT macros in `make/`. A Makefile builds a shared library from `src/` and then runs macros that drive the analysis.
 
 ## Repository layout
 ```
