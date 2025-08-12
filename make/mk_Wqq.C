@@ -1,6 +1,6 @@
-#include "Wqq.h"
+#include "../interface/Wqq.h"
 #include <fstream>
-R__LOAD_LIBRARY(Wqq_C.so);
+R__LOAD_LIBRARY(src/Wqq_C.so);
 
 void mk_Wqq(){
   TChain *c = new TChain("tree");

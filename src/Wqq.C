@@ -1,5 +1,5 @@
 #define Wqq_cxx
-#include "Wqq.h"
+#include "../interface/Wqq.h"
 #include <TH2.h>
 #include <TH3.h>
 #include <TH1.h>
@@ -17,7 +17,7 @@
 #include <TLegend.h>
 #include <TColor.h>
 #include <TStopwatch.h>
-#include "tdrstyle_mod22.C"
+#include "../minitools/tdrstyle_mod22.C"
 
 int CTAG(double x, double y) {
    if (x > 0.43 || y > 0.43) return 1;
@@ -191,7 +191,7 @@ void Wqq::Loop()
    bool DATA = false;
    bool SCALED_MC = false;
    bool MC_fractions = false;
-   bool MC = true;
+   bool MC = false;
    if (DATA) {fout = new TFile("output_DATARun2_Wqq_test4.root", "RECREATE");}
    else if (SCALED_MC) {fout = new TFile("output_MCRun2_Wqq_test3.root", "RECREATE");}
    else if (MC_fractions) {fout = new TFile("output_MCRun2_Wqq_fractions.root", "RECREATE");}
@@ -379,6 +379,8 @@ for (Long64_t jentry=0; jentry<nentries;jentry++) {
    prof_resp_jet2->Write();
    h2_resp_jet1->Write();
    h2_resp_jet2->Write();
+
+   std::cout << "\n[Wqq] Output written to: " << fout->GetName() << std::endl;
    fout->Write();
    fout->Close();
    curdir->cd();
