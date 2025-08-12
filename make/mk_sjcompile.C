@@ -17,5 +17,6 @@
   //gROOT->ProcessLine(".L JetMETCorrections/Modules/src/JetResolution.cc+");
 
   // For Dijet code
-  gROOT->ProcessLine(".L StrangeJet.C+g");
+  gSystem->AddIncludePath("-I interface");
+  gROOT->ProcessLine(".L src/StrangeJet.C+g");
 }
