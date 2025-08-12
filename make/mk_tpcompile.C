@@ -17,5 +17,6 @@
   //gROOT->ProcessLine(".L JetMETCorrections/Modules/src/JetResolution.cc+");
 
   // For Dijet code
-  gROOT->ProcessLine(".L TagandProbe.C+g");
+  gSystem->AddIncludePath("-I interface");
+  gROOT->ProcessLine(".L src/TagandProbe.C+g");
 }

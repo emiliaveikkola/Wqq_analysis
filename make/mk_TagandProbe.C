@@ -1,6 +1,6 @@
-#include "TagandProbe.h"
+#include "../interface/TagandProbe.h"
 #include <fstream>
-R__LOAD_LIBRARY(TagandProbe_C.so);
+R__LOAD_LIBRARY(src/TagandProbe_C.so);
 
 void mk_TagandProbe(){
   TChain *c = new TChain("tree");

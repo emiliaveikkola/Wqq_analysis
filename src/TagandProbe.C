@@ -1,7 +1,7 @@
 #include <cctype>
 #include <map>
 #define TagandProbe_cxx
-#include "TagandProbe.h"
+#include "../interface/TagandProbe.h"
 #include <TH2.h>
 #include <TH3.h>
 #include <TH1.h>
@@ -18,7 +18,7 @@
 #include <TLegend.h>
 #include <TColor.h>
 #include <TStopwatch.h>
-#include "tdrstyle_mod22.C"
+#include "../minitools/tdrstyle_mod22.C"
 
 #include "JERHandler.h"
 
@@ -321,7 +321,7 @@ void TagandProbe::Loop()
    bool ITERATION = false;
    bool CHI2 = false;
    bool PSWEIGHTS = false;
-   bool SMEAR = true;
+   bool SMEAR = false;
    if (DATA) {fout = new TFile("output/DATARun2.root", "RECREATE");}
    else if (SCALED) {fout = new TFile("output/MCSCALEDRun2_fit.root", "RECREATE");}
    else if (NOTSCALED) {fout = new TFile("output/MCRun2.root", "RECREATE");}
@@ -1154,7 +1154,7 @@ for (Long64_t jentry=0; jentry<nentries;jentry++) {
     std::cout << "Xg events (2387032): " << countXg << std::endl;
     std::cout << "Other events (7787900): " << countOther << std::endl;
 
-   // Write full-4vector response histograms
+    std::cout << "\n[TagandProbe] Output written to: " << fout->GetName() << std::endl;
    fout->Write();
    fout->Close();
    exit(0);
