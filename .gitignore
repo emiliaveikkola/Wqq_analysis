@@ -5,3 +5,6 @@
 /output
 /processed_histograms
 .DS_Store
+*.pcm
+*.d
+*.so
