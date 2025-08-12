@@ -10,7 +10,7 @@
 #include <TStyle.h>
 #include <iostream>
 #include <algorithm>
-#include "tdrstyle_mod22.C"
+#include "../minitools/tdrstyle_mod22.C"
 
 // Initialize vectors to store chi-squared values for each category
 std::vector<double> chi2_cs_values;
@@ -19,7 +19,7 @@ std::vector<double> chi2_x_values;
 std::vector<double> chi2_all_values;
 
 void MCvsDATA_mass_Run2_chi2() {
-    TFile *file = new TFile("output_MCRun2.root", "READ");
+    TFile *file = new TFile("../output/output_MCRun2.root", "READ");
     // Open your data and MC files
     TH3D* h3MassFlavorPairs_DATAMC_MC = (TH3D*)file->Get("h3MassFlavorPairs_DATAMC");
     // Project Z for different indices and draw
@@ -45,7 +45,7 @@ void MCvsDATA_mass_Run2_chi2() {
     TH1D* h3genxtagud = h3MassFlavorPairs_DATAMC_MC->ProjectionZ("h3genxtagud", 3, 3, 2, 2);
     TH1D* h3genxtagx = h3MassFlavorPairs_DATAMC_MC->ProjectionZ("h3genxtagx", 3, 3, 3, 3);
 
-    TFile *file2 = new TFile("output_DATARun2.root", "READ");
+    TFile *file2 = new TFile("../output/output_DATARun2.root", "READ");
     TH3D* h3MassFlavorPairs_DATAMC_DATA = (TH3D*)file2->Get("h3MassFlavorPairs_DATAMC");
 
     TH1D* h3all_data = h3MassFlavorPairs_DATAMC_DATA->ProjectionZ("h3all_data", 1, 3, 1, 3);

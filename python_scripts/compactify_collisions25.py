@@ -4,7 +4,7 @@ import shutil
 from pathlib import Path
 
 # Edit this path if the file lives elsewhere
-p = Path("Cert_Collisions2025_391658_393461_Golden.json")
+p = Path("../JSON/Cert_Collisions2025_391658_393461_Golden.json")
 backup = p.with_suffix(".json.bak")
 if not backup.exists():
     shutil.copy(p, backup)  # keep original

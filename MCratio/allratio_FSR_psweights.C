@@ -9,7 +9,7 @@
 #include <vector>
 #include <cmath>
 #include <iostream>
-#include "tdrstyle_mod22.C"
+#include "../minitools/tdrstyle_mod22.C"
 
 double gFunction(double *x, double *params) {
     // Zero constraints

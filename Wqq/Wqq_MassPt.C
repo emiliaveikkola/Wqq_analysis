@@ -32,7 +32,7 @@ void drawOverflowArrow(TH1* h, double xMin, double xMax, double yMax) {
 #include <TStyle.h>
 #include <iostream>
 #include <algorithm>
-#include "tdrstyle_mod22.C"
+#include "../minitools/tdrstyle_mod22.C"
 
 
 void Wqq_MassPt() {

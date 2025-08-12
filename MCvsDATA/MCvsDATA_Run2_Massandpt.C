@@ -10,10 +10,10 @@
 #include <TStyle.h>
 #include <iostream>
 #include <algorithm>
-#include "tdrstyle_mod22.C"
+#include "../minitools/tdrstyle_mod22.C"
 
 void MCvsDATA_Run2_Massandpt() {
-    TFile *file = new TFile("output_MCSCALEDRun2_tagprobe_test6.root", "READ");
+    TFile *file = new TFile("../output/output_MCSCALEDRun2_tagprobe_test6.root", "READ");
 
     TH3D* h3PtFlavorPairs_DATAMC_MC = (TH3D*)file->Get("h3PtFlavorPairs_DATAMC");
     TH3D* h3PtFlavorPairs_DATAMC_GEN = (TH3D*)file->Get("h3PtFlavorPairs_DATAMC_gen");
@@ -29,7 +29,7 @@ void MCvsDATA_Run2_Massandpt() {
     TH1D* h3all_mass_reco = h3MassFlavorPairs_DATAMC_MC->ProjectionZ("h3all_mass_reco", 1, 3, 1, 3);
     TH1D* h3all_mass_gen = h3MassFlavorPairs_DATAMC_GEN->ProjectionZ("h3all_mass_gen", 1, 3, 1, 3);
 
-    TFile *file2 = new TFile("output_DATARun2_tagprobe_test4.root", "READ");
+    TFile *file2 = new TFile("../output/output_DATARun2_tagprobe_test4.root", "READ");
     TH3D* h3PtFlavorPairs_DATAMC_DATA = (TH3D*)file2->Get("h3PtFlavorPairs_DATAMC");
     TH3D* h3MassFlavorPairs_DATAMC_DATA = (TH3D*)file2->Get("h3MassFlavorPairs_DATAMC");
 

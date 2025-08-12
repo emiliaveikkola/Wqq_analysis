@@ -5,7 +5,7 @@
 #include <TFile.h>
 #include <TStyle.h>
 #include <iostream>
-#include "tdrstyle_mod22.C"
+#include "../minitools/tdrstyle_mod22.C"
 
 // Function to compute normalized fraction: bin content / sum of all bins in histogram
 void ComputeNormalizedFraction(TH1D *h_input, TH1D *h_frac) {

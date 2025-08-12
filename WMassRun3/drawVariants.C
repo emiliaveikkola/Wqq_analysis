@@ -4,7 +4,7 @@
 #include "TH1D.h"
 #include "TF1.h"
 #include <TLatex.h>
-#include "tdrstyle_mod22.C"
+#include "../minitools/tdrstyle_mod22.C"
 
 
 void drawVariants() {
@@ -13,9 +13,9 @@ void drawVariants() {
   TDirectory *curdir = gDirectory;
 
   // Open the output files
-  TFile *file1 = new TFile("Winter24_TTtoLNu2Q_Wfinal.root", "READ");
-  TFile *file2 = new TFile("Muon_Run2024CDE_Reprocessing_Wfinal.root", "READ");
-  TFile *file3 = new TFile("Muon_Run2024FGHI_Prompt.root", "READ");
+  TFile *file1 = new TFile("rootfiles/Winter24_TTtoLNu2Q_Wfinal.root", "READ");
+  TFile *file2 = new TFile("rootfiles/Muon_Run2024CDE_Reprocessing_Wfinal.root", "READ");
+  TFile *file3 = new TFile("rootfiles/Muon_Run2024FGHI_Prompt.root", "READ");
 
 
   if (!file1 || file1->IsZombie()) {

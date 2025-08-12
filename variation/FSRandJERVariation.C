@@ -5,7 +5,7 @@
 #include <string>
 #include <iostream>
 #include <TLine.h>
-#include "tdrstyle_mod22.C"
+#include "../minitools/tdrstyle_mod22.C"
 
 // Define the custom fit function:
 // f(x) = 1 + p0*log(x) + p1*(x-1)

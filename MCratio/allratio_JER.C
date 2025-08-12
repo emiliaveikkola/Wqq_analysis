@@ -4,7 +4,7 @@
 #include <vector>
 #include <string>
 #include <iostream>
-#include "tdrstyle_mod22.C"
+#include "../minitools/tdrstyle_mod22.C"
 
 double gFunction(double *x, double *params) {
     /*double shifted_x = x[0]; // No centering applied for simplicity

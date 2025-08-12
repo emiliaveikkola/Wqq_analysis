@@ -16,7 +16,7 @@
 #include <TLegend.h>
 #include <TColor.h>
 #include <TStopwatch.h>
-#include "tdrstyle_mod22.C"
+#include "../minitools/tdrstyle_mod22.C"
 #include "JERHandler.h"
 
 int Tag(double x) {

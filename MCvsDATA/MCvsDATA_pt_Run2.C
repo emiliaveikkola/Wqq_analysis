@@ -10,10 +10,10 @@
 #include <TStyle.h>
 #include <iostream>
 #include <algorithm>
-#include "tdrstyle_mod22.C"
+#include "../minitools/tdrstyle_mod22.C"
 
 void MCvsDATA_pt_Run2() {
-    TFile *file = new TFile("output_MCSCALEDRun2_tagprobe_chi2_FSR_before.root", "READ");
+    TFile *file = new TFile("../output/output_MCSCALEDRun2_tagprobe_chi2_FSR_before.root", "READ");
     TH3D* h3PtFlavorPairs_DATAMC_MC = (TH3D*)file->Get("h3PtFlavorPairs_DATAMC_CHI_1.000_1.000");
       // Project Z for different indices and draw
       TH1D* h3all = h3PtFlavorPairs_DATAMC_MC->ProjectionZ("h3all", 1, 3, 1, 3);
@@ -40,7 +40,7 @@ void MCvsDATA_pt_Run2() {
 
 cout << "here" << flush;
 
-      TFile *file3 = new TFile("output_MCSCALEDRun2_tagprobe_chi2_FSR_after.root", "READ");
+      TFile *file3 = new TFile("../output/output_MCSCALEDRun2_tagprobe_chi2_FSR_after.root", "READ");
       TH3D* h3PtFlavorPairs_DATAMC_SCALEDMASS = (TH3D*)file3->Get("h3PtFlavorPairs_DATAMC_CHI_1.000_1.000");
 
       // Project Z for different indices and draw
@@ -67,7 +67,7 @@ cout << "here" << flush;
       TH1D* h3genxtagx_scaled = h3PtFlavorPairs_DATAMC_SCALEDMASS->ProjectionZ("h3genxtagx_scaled", 3, 3, 3, 3);
 
 
-      TFile *file2 = new TFile("output_DATARun2_tagprobe_before.root", "READ");
+      TFile *file2 = new TFile("../output/output_DATARun2_tagprobe_before.root", "READ");
       TH3D* h3PtFlavorPairs_DATAMC_DATA = (TH3D*)file2->Get("h3PtFlavorPairs_DATAMC");
 
       TH1D* h3all_data = h3PtFlavorPairs_DATAMC_DATA->ProjectionZ("h3all_data", 1, 3, 1, 3);

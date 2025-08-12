@@ -8,7 +8,7 @@
 #include <TMarker.h>
 #include "TAxis.h"
 #include <iostream>
-#include "tdrstyle_mod22.C"  // Assuming you have this for styling
+#include "../minitools/tdrstyle_mod22.C"  // Assuming you have this for styling
 
 void timescale() {
     // Apply TDR style
@@ -16,7 +16,7 @@ void timescale() {
     extraText = "Private";
 
     // Step 1: Load the TH2D histogram from the specified ROOT file
-    TFile* file = TFile::Open("output6.root");  // Use your specified ROOT file
+    TFile* file = TFile::Open("rootfiles/output6.root");  // Use your specified ROOT file
     if (!file || file->IsZombie()) {
         std::cerr << "Error: Unable to open file 'output3.root'." << std::endl;
         return;

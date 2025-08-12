@@ -8,7 +8,7 @@
 
 #include <iostream>
 
-#include "../tdrstyle_mod22.C"
+#include "../minitools/tdrstyle_mod22.C"
 
 bool debug = false;
 bool addExtraText = false;

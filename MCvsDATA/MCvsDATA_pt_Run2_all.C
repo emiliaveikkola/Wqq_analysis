@@ -4,14 +4,14 @@
 #include <vector>
 #include <string>
 #include <iostream>
-#include "tdrstyle_mod22.C"
+#include "../minitools/tdrstyle_mod22.C"
 
 // Main function to plot histograms and their ratios with correct divisions from separate files
 void MCvsDATA_pt_Run2_all() {
     setTDRStyle();
 
     // Open the file containing primary histograms with suffixes
-    TFile* file = new TFile("processed_histograms_pt.root", "READ");
+    TFile* file = new TFile("../processed_histograms/processed_histograms_pt.root", "READ");
     if (!file || file->IsZombie()) {
         std::cerr << "Error: Could not open processed_histograms.root." << std::endl;
         return;

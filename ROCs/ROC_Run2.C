@@ -11,7 +11,7 @@
 #include <iostream>
 #include <vector>
 #include <string>
-#include "tdrstyle_mod22.C"
+#include "../minitools/tdrstyle_mod22.C"
 
 
 // Helper function to extract the base name from a file path

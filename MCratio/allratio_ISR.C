@@ -4,7 +4,7 @@
 #include <vector>
 #include <string>
 #include <iostream>
-#include "tdrstyle_mod22.C"
+#include "../minitools/tdrstyle_mod22.C"
 
 // Transform x to the range [-1, 1] for use with Chebyshev polynomials
 double transformX(double x) {

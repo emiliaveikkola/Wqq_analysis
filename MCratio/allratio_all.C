@@ -9,7 +9,7 @@
 #include <vector>
 #include <cmath>
 #include <iostream>
-#include "tdrstyle_mod22.C"
+#include "../minitools/tdrstyle_mod22.C"
 
 // Define g(x) as a cubic function without a constant term: g(x) = a * (x - 83)^3 + b * (x - 83)^2 + c * (x - 83)
 double gFunction(double *x, double *params) {
@@ -72,7 +72,7 @@ void allratio_FSR() {
     extraText = "Private";
 
     // Open the file containing the processed histograms
-    TFile* file = new TFile("processed_histograms.root", "READ");
+    TFile* file = new TFile("processed_histograms/all.root", "READ");
     if (!file || file->IsZombie()) {
         std::cerr << "Error: Could not open processed_histograms.root." << std::endl;
         return;

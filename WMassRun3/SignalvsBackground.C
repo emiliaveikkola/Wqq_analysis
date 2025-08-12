@@ -2,13 +2,13 @@
 #include "TH1D.h"
 #include "TF1.h"
 #include <TLatex.h>
-#include "tdrstyle_mod22.C"
+#include "../minitools/tdrstyle_mod22.C"
 #include "TBox.h"
 
 void SignalvsBackground() {
   setTDRStyle();
   TDirectory *curdir = gDirectory;
-  TFile *file1 = new TFile("Winter24_TTtoLNu2Q.root", "READ");
+  TFile *file1 = new TFile("rootfiles/Winter24_TTtoLNu2Q.root", "READ");
 
   TH2D* h2_control_raw    = (TH2D*)file1->Get("h2_Wmass_ptpair_qg");
   TH2D* h2_control2_raw    = (TH2D*)file1->Get("h2_Wmass_ptpair_qq_others");

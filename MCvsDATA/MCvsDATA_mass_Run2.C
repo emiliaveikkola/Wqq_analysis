@@ -10,10 +10,10 @@
 #include <TStyle.h>
 #include <iostream>
 #include <algorithm>
-#include "tdrstyle_mod22.C"
+#include "../minitools/tdrstyle_mod22.C"
 
 void MCvsDATA_mass_Run2() {
-    TFile *file = new TFile("output_MCRun2_tagprobe_test4.root", "READ");
+    TFile *file = new TFile("../output/output_MCRun2_tagprobe_test4.root", "READ");
     TH3D* h3MassFlavorPairs_DATAMC_MC = (TH3D*)file->Get("h3MassFlavorPairs_DATAMC");
     
       // Project Z for different indices and draw
@@ -39,7 +39,7 @@ void MCvsDATA_mass_Run2() {
       TH1D* h3genxtagud = h3MassFlavorPairs_DATAMC_MC->ProjectionZ("h3genxtagud", 3, 3, 2, 2);
       TH1D* h3genxtagx = h3MassFlavorPairs_DATAMC_MC->ProjectionZ("h3genxtagx", 3, 3, 3, 3);
 
-      TFile *file3 = new TFile("output_MCSCALEDRun2_tagprobe_test5.root", "READ");
+      TFile *file3 = new TFile("../output/output_MCSCALEDRun2_tagprobe_test5.root", "READ");
       TH3D* h3MassFlavorPairs_DATAMC_RESP = (TH3D*)file3->Get("h3MassFlavorPairs_DATAMC_RESP");
 
       // Project Z for different indices and draw
@@ -65,7 +65,7 @@ void MCvsDATA_mass_Run2() {
       TH1D* h3genxtagud_resp = h3MassFlavorPairs_DATAMC_RESP->ProjectionZ("h3genxtagud_resp", 3, 3, 2, 2);
       TH1D* h3genxtagx_resp = h3MassFlavorPairs_DATAMC_RESP->ProjectionZ("h3genxtagx_resp", 3, 3, 3, 3);
 
-      TFile *file2 = new TFile("output_DATARun2_tagprobe_test4.root", "READ");
+      TFile *file2 = new TFile("../output/output_DATARun2_tagprobe_test4.root", "READ");
       TH3D* h3MassFlavorPairs_DATAMC_DATA = (TH3D*)file2->Get("h3MassFlavorPairs_DATAMC");
 
       TH1D* h3all_data = h3MassFlavorPairs_DATAMC_DATA->ProjectionZ("h3all_data", 1, 3, 1, 3);

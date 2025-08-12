@@ -16,7 +16,7 @@
 #include <sstream>
 #include <TGraphErrors.h>
 #include <TLatex.h>
-#include "tdrstyle_mod22.C"
+#include "../minitools/tdrstyle_mod22.C"
 
 void chi_Run2_pt() {
     setTDRStyle();

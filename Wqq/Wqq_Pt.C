@@ -10,7 +10,7 @@
 #include <TStyle.h>
 #include <iostream>
 #include <algorithm>
-#include "tdrstyle_mod22.C"
+#include "../minitools/tdrstyle_mod22.C"
 
 void Wqq_Pt() {
     TFile *file = new TFile("output_MCRun2_Wqq_MassPt.root", "READ");

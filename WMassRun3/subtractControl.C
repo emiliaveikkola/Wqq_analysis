@@ -15,8 +15,8 @@
 
 void subtractControl(){
   // 1) Open input and create output
-  TFile *fin  = new TFile("Winter24_TTtoLNu2Q.root", "READ");
-  TFile *fout = new TFile("sigback.root", "RECREATE");
+  TFile *fin  = new TFile("rootfiles/Winter24_TTtoLNu2Q.root", "READ");
+  TFile *fout = new TFile("rootfiles/sigback.root", "RECREATE");
   
   // 2) Retrieve the four profiles & TH2Ds
   TH2D*     h2_sig    = (TH2D*)fin->Get("h2_Wmass_ptpair_qq");
