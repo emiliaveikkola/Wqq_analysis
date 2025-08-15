@@ -150,36 +150,80 @@ void ROC_Run2() {
 
         double dx5_min(1), x5_020(1), x5_cut_020(1), y5_020(1);
         double dx5_min2(1), x5_080(1), x5_cut_080(1), y5_080(1);
+        double dx5_min3 = 1;
+        double x5_cut_001, x5_001, y5_001;
 
+        // Variables for anti-ctag (light-jet selector) working points
+        double dx5_fail_loose = 1, dx5_fail_medium = 1, dx5_fail_tight = 1;
+        double x5_cut_fail_loose, x5_cut_fail_medium, x5_cut_fail_tight;
+        double x5_fail_loose, x5_fail_medium, x5_fail_tight;
+        double y5_fail_loose, y5_fail_medium, y5_fail_tight;
         for (int j = 0; j < 100; ++j) {
             double y5 = h_uds_ctag3->Integral(j, 100);
             double x5 = h_c_ctag3->Integral(j, 100);
             rocCurveCUDS->SetPoint(j, x5, y5);
 
-            // For target efficiency 0.20
-            if (fabs(x5 - 0.2) < dx5_min) {
+            // For target mis-id 0.01
+            if (fabs(y5 - 0.01) < dx5_min) {
                 x5_cut_020 = h_c_ctag3->GetBinLowEdge(j);
                 x5_020 = x5;
-                dx5_min = fabs(x5 - 0.2);
+                dx5_min = fabs(y5 - 0.01);
                 y5_020 = y5;
             }
 
-            // For target efficiency 0.80
-            if (fabs(x5 - 0.8) < dx5_min2) {
+            // For target mis-id 0.10
+            if (fabs(y5 - 0.10) < dx5_min2) {
                 x5_cut_080 = h_c_ctag3->GetBinLowEdge(j);
                 x5_080 = x5;
-                dx5_min2 = fabs(x5 - 0.8);
+                dx5_min2 = fabs(y5 - 0.10);
                 y5_080 = y5;
+            }
+
+            // For target mis-id 0.001 (0.1%)
+            if (fabs(y5 - 0.001) < dx5_min3) {
+                x5_cut_001 = h_c_ctag3->GetBinLowEdge(j);
+                x5_001 = x5;
+                dx5_min3 = fabs(y5 - 0.001);
+                y5_001 = y5;
+            }
+
+            // Anti-ctag working points for high mis-id thresholds (light-jet selector)
+            if (fabs(y5 - 0.5) < dx5_fail_loose) {
+                x5_cut_fail_loose = h_c_ctag3->GetBinLowEdge(j);
+                x5_fail_loose = x5;
+                y5_fail_loose = y5;
+                dx5_fail_loose = fabs(y5 - 0.5);
+            }
+            if (fabs(y5 - 0.9) < dx5_fail_medium) {
+                x5_cut_fail_medium = h_c_ctag3->GetBinLowEdge(j);
+                x5_fail_medium = x5;
+                y5_fail_medium = y5;
+                dx5_fail_medium = fabs(y5 - 0.9);
+            }
+            if (fabs(y5 - 0.95) < dx5_fail_tight) {
+                x5_cut_fail_tight = h_c_ctag3->GetBinLowEdge(j);
+                x5_fail_tight = x5;
+                y5_fail_tight = y5;
+                dx5_fail_tight = fabs(y5 - 0.95);
             }
         }
 
-        // Print the results for x5_020, y5_020, x5_080, y5_080
-        std::cout << "File: " << getBaseFileName(fileNames[i]) << std::endl;
-        std::cout << "For ctag > " << x5_cut_020 << " ctag_eff = " << x5_020 << " (target = 0.20)"
-                  << " mis-tag = " << y5_020 << " (target = 0.01)" << std::endl;
+        // Print the results for x5_020, y5_020, x5_080, y5_080, and 0.1%
+        std::cout << "File: " << getBaseFileName(friendlyNames[i]) << std::endl;
+        std::cout << "For ctag > " << x5_cut_020 << " ctag_eff = " << x5_020 << " (mis-tag = 0.01)"
+                  << " actual mis-tag = " << y5_020 << std::endl;
 
-        std::cout << "For ctag < " << x5_cut_080 << " ctag_eff = " << x5_080 << " (target = 0.80)"
-                  << " mis-tag = " << y5_080 << " (target = 0.60)" << std::endl;
+        std::cout << "For ctag > " << x5_cut_080 << " ctag_eff = " << x5_080 << " (mis-tag = 0.10)"
+                  << " actual mis-tag = " << y5_080 << std::endl;
+
+        std::cout << "For ctag > " << x5_cut_001 << " ctag_eff = " << x5_001 << " (mis-tag = 0.001)"
+                  << " actual mis-tag = " << y5_001 << std::endl;
+
+        // Print anti-ctag (light jet selector) working points
+        std::cout << "Anti-ctag working points (light jet selector):" << std::endl;
+        std::cout << "Loose:  ctag < " << x5_cut_fail_loose  << "  eff = " << x5_fail_loose  << "  mis-id = " << y5_fail_loose  << std::endl;
+        std::cout << "Medium: ctag < " << x5_cut_fail_medium << "  eff = " << x5_fail_medium << "  mis-id = " << y5_fail_medium << std::endl;
+        std::cout << "Tight:  ctag < " << x5_cut_fail_tight  << "  eff = " << x5_fail_tight  << "  mis-id = " << y5_fail_tight  << std::endl;
 
         // Set style for ROC curve
         rocCurveCUDS->SetLineColor(colors[i % colors.size()]);
@@ -207,5 +251,5 @@ void ROC_Run2() {
     c2->Update();
 
     // Save canvas
-    c2->SaveAs("pdf/ROC_Curves_Run2.pdf");
+    c2->SaveAs("../pdf/ROC_Curves_Run2.pdf");
 }
